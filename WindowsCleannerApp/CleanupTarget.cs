@@ -6,6 +6,12 @@ internal sealed class CleanupTarget
 
     public required string Path { get; init; }
 
+    public string Category { get; init; } = "General Cleanup";
+
+    public string Description { get; init; } = string.Empty;
+
+    public bool DefaultSelected { get; init; } = true;
+
     public bool Recursive { get; init; } = true;
 
     public bool DeleteRootFilesOnly { get; init; }

@@ -8,6 +8,8 @@ internal sealed class CleanupTargetViewModel
 
     public string Name => Target.Name;
 
+    public string Category => Target.Category;
+
     public string Location => Target.Path;
 
     public bool Exists { get; set; }

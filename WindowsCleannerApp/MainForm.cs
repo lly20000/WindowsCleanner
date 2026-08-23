@@ -8,9 +8,11 @@ internal sealed class MainForm : Form
     private readonly BindingList<CleanupTargetViewModel> rows = [];
     private readonly Label summaryLabel = new();
     private readonly Label statusLabel = new();
+    private readonly Label adminStatusLabel = new();
     private readonly DataGridView grid = new();
     private readonly Button scanButton = new();
     private readonly Button cleanButton = new();
+    private readonly Button adminButton = new();
 
     public MainForm()
     {
@@ -87,12 +89,24 @@ internal sealed class MainForm : Form
         cleanButton.FlatStyle = FlatStyle.System;
         cleanButton.Click += async (_, _) => await CleanAsync();
 
+        adminButton.Text = "Restart as Administrator";
+        adminButton.AutoSize = true;
+        adminButton.Padding = new Padding(14, 8, 14, 8);
+        adminButton.FlatStyle = FlatStyle.System;
+        adminButton.Click += (_, _) => RestartAsAdministrator();
+
         summaryLabel.AutoSize = true;
         summaryLabel.Margin = new Padding(18, 12, 0, 0);
         summaryLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold, GraphicsUnit.Point);
 
+        adminStatusLabel.AutoSize = true;
+        adminStatusLabel.Margin = new Padding(18, 12, 0, 0);
+        adminStatusLabel.ForeColor = Color.FromArgb(130, 77, 31);
+
         actionsPanel.Controls.Add(scanButton);
         actionsPanel.Controls.Add(cleanButton);
+        actionsPanel.Controls.Add(adminButton);
+        actionsPanel.Controls.Add(adminStatusLabel);
         actionsPanel.Controls.Add(summaryLabel);
 
         grid.Dock = DockStyle.Fill;
@@ -136,9 +150,16 @@ internal sealed class MainForm : Form
         });
         grid.Columns.Add(new DataGridViewTextBoxColumn
         {
+            DataPropertyName = nameof(CleanupTargetViewModel.Category),
+            HeaderText = "Category",
+            Width = 160,
+            ReadOnly = true
+        });
+        grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
             DataPropertyName = nameof(CleanupTargetViewModel.Location),
             HeaderText = "Path",
-            Width = 320,
+            Width = 280,
             ReadOnly = true
         });
         grid.Columns.Add(new DataGridViewTextBoxColumn
@@ -188,6 +209,7 @@ internal sealed class MainForm : Form
         root.Controls.Add(footerPanel, 0, 3);
 
         Controls.Add(root);
+        UpdateAdminUi();
     }
 
     private async Task ScanAsync()
@@ -207,12 +229,12 @@ internal sealed class MainForm : Form
                 rows.Add(new CleanupTargetViewModel
                 {
                     Target = scan.Target,
-                    Selected = scan.Exists && scan.EstimatedBytes > 0,
+                    Selected = scan.Target.DefaultSelected && scan.Exists && scan.Accessible && scan.EstimatedBytes > 0,
                     Exists = scan.Exists,
                     FileCount = scan.FileCount,
                     EstimatedBytes = scan.EstimatedBytes,
-                    Status = scan.Exists ? "Ready" : "Missing",
-                    WarningText = string.Join(" | ", scan.Warnings)
+                    Status = GetStatus(scan),
+                    WarningText = BuildNotes(scan)
                 });
             }
 
@@ -291,6 +313,7 @@ internal sealed class MainForm : Form
     {
         scanButton.Enabled = !busy;
         cleanButton.Enabled = !busy;
+        adminButton.Enabled = !busy && !AdminHelper.IsRunningAsAdministrator();
         grid.Enabled = !busy;
         statusLabel.Text = message ?? "Ready";
         UseWaitCursor = busy;
@@ -301,5 +324,65 @@ internal sealed class MainForm : Form
         var totalBytes = rows.Where(row => row.Exists).Sum(row => row.EstimatedBytes);
         var selectedBytes = rows.Where(row => row.Selected && row.Exists).Sum(row => row.EstimatedBytes);
         summaryLabel.Text = $"Total {SizeFormatter.FormatBytes(totalBytes)}   Selected {SizeFormatter.FormatBytes(selectedBytes)}";
+    }
+
+    private static string BuildNotes(ScanResult scan)
+    {
+        var notes = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(scan.Target.Description))
+        {
+            notes.Add(scan.Target.Description);
+        }
+
+        notes.AddRange(scan.Warnings.Where(warning => !string.IsNullOrWhiteSpace(warning)));
+        return string.Join(" | ", notes);
+    }
+
+    private static string GetStatus(ScanResult scan)
+    {
+        if (!scan.Exists)
+        {
+            return "Missing";
+        }
+
+        if (!scan.Accessible)
+        {
+            return "Access denied";
+        }
+
+        return "Ready";
+    }
+
+    private void UpdateAdminUi()
+    {
+        var isAdmin = AdminHelper.IsRunningAsAdministrator();
+        adminButton.Visible = !isAdmin;
+        adminStatusLabel.Text = isAdmin
+            ? "Administrator mode enabled. Protected folders can be scanned more completely."
+            : "Some protected folders may show Access denied. Restart as Administrator for a deeper scan.";
+        adminStatusLabel.ForeColor = isAdmin
+            ? Color.FromArgb(46, 102, 63)
+            : Color.FromArgb(130, 77, 31);
+    }
+
+    private void RestartAsAdministrator()
+    {
+        if (AdminHelper.IsRunningAsAdministrator())
+        {
+            UpdateAdminUi();
+            return;
+        }
+
+        if (AdminHelper.TryRestartElevated(this, out var errorMessage))
+        {
+            Close();
+            return;
+        }
+
+        if (!string.Equals(errorMessage, "The elevation request was canceled.", StringComparison.Ordinal))
+        {
+            MessageBox.Show(this, errorMessage ?? "Failed to restart with administrator privileges.", "Elevation failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 }

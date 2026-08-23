@@ -8,6 +8,8 @@ internal sealed class ScanResult
 
     public required bool Exists { get; init; }
 
+    public required bool Accessible { get; init; }
+
     public required long EstimatedBytes { get; init; }
 
     public required int FileCount { get; init; }

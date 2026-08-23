@@ -29,14 +29,34 @@ internal sealed class FileSystemCleaner
     private static ScanResult ScanTarget(CleanupTarget target)
     {
         var warnings = new List<string>();
+        var pathState = GetDirectoryState(target.Path);
 
-        if (!Directory.Exists(target.Path))
+        if (!pathState.Exists)
         {
             return new ScanResult
             {
                 Name = target.Name,
                 Path = target.Path,
                 Exists = false,
+                Accessible = false,
+                EstimatedBytes = 0,
+                FileCount = 0,
+                Files = Array.Empty<string>(),
+                Warnings = warnings,
+                Target = target
+            };
+        }
+
+        if (!pathState.Accessible)
+        {
+            warnings.Add("Access denied. Run as Administrator or with a user account that can read this directory.");
+
+            return new ScanResult
+            {
+                Name = target.Name,
+                Path = target.Path,
+                Exists = true,
+                Accessible = false,
                 EstimatedBytes = 0,
                 FileCount = 0,
                 Files = Array.Empty<string>(),
@@ -79,6 +99,7 @@ internal sealed class FileSystemCleaner
             Name = target.Name,
             Path = target.Path,
             Exists = true,
+            Accessible = true,
             EstimatedBytes = totalBytes,
             FileCount = files.Count,
             Files = files,
@@ -230,4 +251,41 @@ internal sealed class FileSystemCleaner
         allDirectories.Sort((left, right) => right.Length.CompareTo(left.Length));
         return allDirectories;
     }
+
+    private static DirectoryState GetDirectoryState(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return new DirectoryState(Exists: false, Accessible: false);
+        }
+
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                return new DirectoryState(Exists: true, Accessible: true);
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new DirectoryState(Exists: true, Accessible: false);
+        }
+
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            var isDirectory = (attributes & FileAttributes.Directory) == FileAttributes.Directory;
+            return new DirectoryState(Exists: isDirectory, Accessible: isDirectory);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new DirectoryState(Exists: true, Accessible: false);
+        }
+        catch (IOException)
+        {
+            return new DirectoryState(Exists: false, Accessible: false);
+        }
+    }
+
+    private readonly record struct DirectoryState(bool Exists, bool Accessible);
 }
